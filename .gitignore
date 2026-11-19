@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 依赖与构建产物（本项目为纯静态单文件，一般不会产生）
+node_modules/
+dist/
+*.log
+
+# 临时文件
+*.tmp

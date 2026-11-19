@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#f6f8fb"/>
+  <!-- 定子环 -->
+  <circle cx="32" cy="32" r="24" fill="#e8edf4" stroke="#b9c3d1" stroke-width="3"/>
+  <!-- 转子（SPM 表贴永磁：N 红 / S 蓝） -->
+  <circle cx="32" cy="32" r="12" fill="#9aa5b3" stroke="#7e8998" stroke-width="2"/>
+  <path d="M32 20 A12 12 0 0 1 32 44 Z" fill="#e14b3c"/>
+  <path d="M32 44 A12 12 0 0 1 32 20 Z" fill="#2e6ed8"/>
+  <circle cx="32" cy="32" r="3" fill="#5d6777"/>
+  <!-- 合成电枢磁场 Fs（橙） -->
+  <line x1="32" y1="32" x2="32" y2="10" stroke="#ff8a00" stroke-width="4" stroke-linecap="round"/>
+  <polygon points="32,4 25,13 39,13" fill="#ff8a00"/>
+  <!-- 电磁力 F（紫，⊥Fs，起点在 Fs 箭头尖） -->
+  <line x1="32" y1="10" x2="48" y2="10" stroke="#7c3aed" stroke-width="4" stroke-linecap="round"/>
+  <polygon points="54,10 45,4 45,16" fill="#7c3aed"/>
+</svg>

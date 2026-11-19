@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="SPM 表贴式永磁同步电机 FOC 矢量控制原理交互演示：6 线圈径向磁场矢量合成、id=0 控制、Clark/Park 变换、α-β 与 d-q 坐标系联动。纯 Canvas 2D 单文件实现。">
+<meta name="theme-color" content="#eef1f6">
+<meta property="og:title" content="SPM 永磁同步电机 FOC 矢量控制原理演示">
+<meta property="og:description" content="6 线圈磁场矢量叠加 → 合成电枢磁场 Fs → 电磁力 F；id=0 控制，α-β/d-q 坐标系同步联动。">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<title>SPM表贴式永磁同步电机 · FOC矢量控制原理演示（id=0 · 6线圈独立磁场合成）</title>
+<style>
+  /* ============ 全局布局 ============ */
+  :root{
+    --bg:#eef1f6; --panel:#ffffff; --line:#d7dde7;
+    --ink:#24303f; --accent:#2563eb;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; }
+  body{
+    display:flex; flex-direction:column; gap:10px;
+    padding:10px 14px;
+    background:var(--bg);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    overflow:auto;
+  }
+  header{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1{ font-size:17px; margin:0; color:#1e3a5f; }
+  header .sub{ font-size:12px; color:#64748b; }
+
+  /* 中部：2×2 四个子画布 + 右侧公式面板 */
+  main{ display:flex; gap:12px; flex:1 1 auto; min-height:420px; }
+  .canvas-wrap{
+    flex:1 1 auto; min-width:0;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:6px; display:flex;
+  }
+  .grid{
+    flex:1; min-width:0; min-height:0;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    gap:6px;
+  }
+  .cell{
+    position:relative; display:flex; min-width:0; min-height:0;
+    background:#fbfcfe; border:1px solid #e2e8f0; border-radius:8px;
+    overflow:hidden;
+  }
+  .cell canvas{ margin:auto; display:block; }
+
+  /* 右侧公式面板 */
+  .panel{
+    width:340px; flex:0 0 auto;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; overflow:auto;
+  }
+  .panel h2{
+    font-size:15px; margin:0 0 10px; color:#1e3a5f;
+    border-bottom:2px solid var(--accent); padding-bottom:8px;
+  }
+  .f-block{ margin-bottom:12px; }
+  .f-name{ font-size:13px; color:#2563eb; font-weight:600; margin-bottom:6px; }
+  .f-eq{
+    font-family:Georgia,"Times New Roman",serif;
+    font-style:italic; font-size:15.5px; color:#1f2937;
+    padding:3px 0 3px 10px; margin:4px 0;
+    border-left:3px solid #dbe3f0;
+  }
+  .f-eq sub{ font-size:10px; font-style:normal; }
+  .spm-note{
+    margin-top:12px; background:#f0f7f1; border:1px solid #cfe6d6;
+    border-radius:8px; padding:8px 10px;
+    font-size:12.5px; color:#14532d; line-height:1.8;
+  }
+  .panel .hint{ margin-top:10px; font-size:11.5px; color:#94a3b8; }
+
+  /* 底部控制条 */
+  .controls{
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:10px 14px;
+  }
+  #btnRun{
+    border:none; border-radius:8px; padding:9px 22px;
+    background:var(--accent); color:#fff; font-size:14px; font-weight:600;
+    cursor:pointer; letter-spacing:1px;
+  }
+  #btnRun:hover{ background:#1d4ed8; }
+  .ctl{ display:flex; align-items:center; gap:8px; font-size:13px; color:#334155; }
+  .ctl input[type=range]{ width:150px; accent-color:var(--accent); }
+  .ctl b{
+    min-width:56px; font-weight:600; color:#0f4c9c;
+    font-family:Consolas,"SF Mono",monospace; font-size:12.5px;
+  }
+  .status{
+    margin-left:auto;
+    display:flex; flex-wrap:wrap; gap:4px 14px; align-items:center;
+    background:#f4f7fb; border:1px solid var(--line); border-radius:8px;
+    padding:7px 12px; font-size:12.5px; white-space:nowrap;
+  }
+  .status b{ font-family:Consolas,"SF Mono",monospace; color:#0f4c9c; }
+  #sRun{ color:#0f9d58; }
+  #sRun.paused{ color:#b45309; }
+
+  /* 窄屏自适应 */
+  @media (max-width:1020px){
+    main{ flex-direction:column; min-height:0; }
+    .canvas-wrap{ min-height:640px; }
+    .panel{ width:100%; }
+    .status{ margin-left:0; }
+  }
+  @media (max-width:720px){
+    .grid{ grid-template-columns:1fr; grid-template-rows:repeat(4,minmax(220px,1fr)); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SPM 表贴式永磁同步电机 · FOC 矢量控制原理演示</h1>
+  <div class="sub">id=0 控制 | 6线圈径向分磁场（正向指向圆心）→ 合成Fs | Ld≈Lq 仅永磁转矩 | p=1</div>
+</header>
+
+<main>
+  <!-- 2×2 四个子画布：①电机剖面 ②矢量叠加 ③αβ ④dq -->
+  <div class="canvas-wrap">
+    <div class="grid">
+      <div class="cell"><canvas id="cvMotor"></canvas></div>
+      <div class="cell"><canvas id="cvSynth"></canvas></div>
+      <div class="cell"><canvas id="cvAB"></canvas></div>
+      <div class="cell"><canvas id="cvDQ"></canvas></div>
+    </div>
+  </div>
+
+  <!-- 右侧固定公式面板 -->
+  <aside class="panel">
+    <h2>FOC 坐标变换公式</h2>
+
+    <div class="f-block">
+      <div class="f-name">① Clark 变换（ABC → αβ，等幅值）</div>
+      <div class="f-eq">i<sub>α</sub> = i<sub>a</sub></div>
+      <div class="f-eq">i<sub>β</sub> = ( i<sub>b</sub> − i<sub>c</sub> ) / √3</div>
+    </div>
+
+    <div class="f-block">
+      <div class="f-name">② Park 变换（αβ → dq）</div>
+      <div class="f-eq">i<sub>d</sub> = i<sub>α</sub>cosθ<sub>e</sub> + i<sub>β</sub>sinθ<sub>e</sub></div>
+      <div class="f-eq">i<sub>q</sub> = −i<sub>α</sub>sinθ<sub>e</sub> + i<sub>β</sub>cosθ<sub>e</sub></div>
+    </div>
+
+    <div class="f-block">
+      <div class="f-name">③ 反 Park 变换（dq → αβ）</div>
+      <div class="f-eq">i<sub>α</sub> = i<sub>d</sub>cosθ<sub>e</sub> − i<sub>q</sub>sinθ<sub>e</sub></div>
+      <div class="f-eq">i<sub>β</sub> = i<sub>d</sub>sinθ<sub>e</sub> + i<sub>q</sub>cosθ<sub>e</sub></div>
+    </div>
+
+    <div class="spm-note">
+      SPM 特性：L<sub>d</sub> ≈ L<sub>q</sub>，磁阻转矩 ≈ 0，仅永磁转矩<br>
+      转矩方程：T<sub>e</sub> = 1.5 · p · ψ<sub>f</sub> · i<sub>q</sub>（id = 0 时，T<sub>e</sub> ∝ i<sub>q</sub>）
+    </div>
+
+    <div class="hint">提示：拖动"电角度 θe"滑杆可定格逐点讲解；线圈磁场为径向——正向电流指向圆心、反向背离圆心，6 线圈瞬时叠加 → 大小/方向可调的 Fs（id=0 时 Fs 与 q 轴同向）。转子仅 N/S 色块，无任何转子永磁磁力线。</div>
+  </aside>
+</main>
+
+<!-- 底部控制区 -->
+<footer class="controls">
+  <button id="btnRun">⏸ 暂停</button>
+
+  <label class="ctl">
+    <span>电角度 θe</span>
+    <input type="range" id="slTheta" min="0" max="360" step="0.1" value="0">
+    <b id="vTheta">0.0°</b>
+  </label>
+
+  <label class="ctl">
+    <span>转速 (°/s)</span>
+    <input type="range" id="slSpeed" min="30" max="360" step="10" value="90">
+    <b id="vSpeed">90</b>
+  </label>
+
+  <label class="ctl">
+    <span>电流幅值 iq (A)</span>
+    <input type="range" id="slIq" min="0" max="10" step="0.1" value="6">
+    <b id="vIq">6.0</b>
+  </label>
+
+  <div class="status" id="status">
+    <span>θe = <b id="sTheta">0.0°</b></span>
+    <span>Ia = <b id="sIa">0.00 A</b></span>
+    <span>Ib = <b id="sIb">0.00 A</b></span>
+    <span>Ic = <b id="sIc">0.00 A</b></span>
+    <span>iα = <b id="sIalpha">0.00 A</b></span>
+    <span>iβ = <b id="sIbeta">0.00 A</b></span>
+    <span>id = <b id="sId">0.00 A</b></span>
+    <span>iq = <b id="sIq">6.00 A</b></span>
+    <span><b id="sRun">运行中</b></span>
+  </div>
+</footer>
+
+<script>
+"use strict";
+/* =====================================================================
+ * SPM 表贴式永磁同步电机 FOC 矢量控制原理演示（Canvas 2D 单文件）
+ *
+ * 核心物理模型（必须严格遵守）：
+ *   定子共 6 个线圈 A+/A−、B+/B−、C+/C−（三相，两两成对，间隔 60°）。
+ *   每个线圈通电产生的磁场矢量基准方向固定为径向：正向电流 → 指向
+ *   圆心，反向电流 → 背离圆心；长度由电流大小决定，正负翻转指向。
+ *   每一帧：6 个线圈各自独立生成磁场矢量 → 矢量叠加 → 定子合成磁场 Fs。
+ *   ⚠️ 转子为 SPM 表贴永磁转子：只绘制 N/S 色块与铁芯轮廓，
+ *      转子区域绝对不绘制任何属于转子永磁体的磁力线/磁场矢量；
+ *      画面中所有磁力线、磁场矢量全部来自定子线圈电枢磁场。
+ *
+ * 数学约定：
+ *   - θe：d 轴（转子 N 极中心）与 α 轴（A 相轴线）的夹角
+ *   - id=0 控制：Is 锁定在 q 轴（超前 d 轴 90°），iq = Is
+ *   - 三相电流：ia = Is·cos(θe+90°)，ib = Is·cos(θe+90°−120°)，ic = ...
+ *   - 线圈磁场矢量：位于角度 a 的线圈电流 i，磁场矢量 = −i·u(a)
+ *     （正向电流指向圆心，反向背离圆心）；
+ *     线圈两两对置排布（A+对A−、B+对B−、C+对C−），6 边矢量求和
+ *     = 3·Is·u(θe+90°)，与 Fs、Is 同向
+ * ===================================================================== */
+
+const CVS = ['cvMotor','cvSynth','cvAB','cvDQ'].map(id => document.getElementById(id));
+
+/* ---------- 状态与常量 ---------- */
+const state = { theta:0, speed:90, iq:6, running:true };
+const IMAX = 10;
+const TAU  = Math.PI*2;
+const deg  = Math.PI/180;
+
+/* 6 个线圈：[槽位角度, 标签, 相索引(0=A,1=B,2=C), 电流符号, 专属颜色]
+ * 排布：0°,60°,...,300° 均匀分布；A+对A−、B+对B−、C+对C− 两两对置成对。
+ * 磁场矢量规则（径向）：正向电流 → 箭头指向圆心；反向电流 → 背离圆心。
+ * 此排布下 6 矢量求和 = 3·Is·u(θe+90°)，即与 Fs、Is 同向 */
+const SIDES = [
+  [  0*deg,'A−',0,-1,'#2f6fd6'],
+  [ 60*deg,'C+',2, 1,'#d63f8c'],
+  [120*deg,'B−',1,-1,'#7a5cd6'],
+  [180*deg,'A+',0, 1,'#e2574a'],
+  [240*deg,'C−',2,-1,'#22a0a0'],
+  [300*deg,'B+',1, 1,'#e0912d']
+];
+
+let DPR = 1;
+
+/* ---------- DOM 引用 ---------- */
+const btnRun  = document.getElementById('btnRun');
+const slTheta = document.getElementById('slTheta');
+const slSpeed = document.getElementById('slSpeed');
+const slIq    = document.getElementById('slIq');
+const vTheta  = document.getElementById('vTheta');
+const vSpeed  = document.getElementById('vSpeed');
+const vIq     = document.getElementById('vIq');
+const sTheta  = document.getElementById('sTheta');
+const sIa     = document.getElementById('sIa');
+const sIb     = document.getElementById('sIb');
+const sIc     = document.getElementById('sIc');
+const sIalpha = document.getElementById('sIalpha');
+const sIbeta  = document.getElementById('sIbeta');
+const sId     = document.getElementById('sId');
+const sIq     = document.getElementById('sIq');
+const sRun    = document.getElementById('sRun');
+
+/* ---------- 画布自适应尺寸（四个子画布） ---------- */
+function resizeAll(){
+  DPR = window.devicePixelRatio || 1;
+  for (const cv of CVS){
+    const cell = cv.parentElement;
+    const w = Math.max(200, cell.clientWidth);
+    const h = Math.max(160, cell.clientHeight);
+    cv.width  = Math.round(w*DPR);
+    cv.height = Math.round(h*DPR);
+    cv.style.width  = w + 'px';
+    cv.style.height = h + 'px';
+  }
+}
+const wrap = document.querySelector('.canvas-wrap');
+if (window.ResizeObserver) new ResizeObserver(resizeAll).observe(wrap);
+window.addEventListener('resize', resizeAll);
+resizeAll();
+
+/* =====================================================================
+ * 绘图工具函数（角度约定：0° 指向右，逆时针为正；polar 已翻转 y 轴）
+ * ===================================================================== */
+function polar(cx,cy,r,a){ return [cx + r*Math.cos(a), cy - r*Math.sin(a)]; }
+
+function label(ctx,str,x,y,o){
+  o = o || {};
+  const size = o.size || 12;
+  ctx.font = (o.bold?'bold ':'') + size + 'px "PingFang SC","Microsoft YaHei","Segoe UI",sans-serif';
+  ctx.textAlign = o.align || 'center';
+  ctx.textBaseline = 'middle';
+  if (o.halo !== false){
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+    ctx.strokeText(str,x,y);
+  }
+  ctx.fillStyle = o.color || '#24303f';
+  ctx.fillText(str,x,y);
+}
+
+function arrow(ctx,x1,y1,x2,y2,color,w,head){
+  const ang = Math.atan2(y2-y1, x2-x1);
+  const L   = Math.hypot(x2-x1, y2-y1);
+  const hl  = Math.min(head||14, L*0.35);
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = w; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2 - hl*Math.cos(ang), y2 - hl*Math.sin(ang));
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2 - hl*Math.cos(ang-0.45), y2 - hl*Math.sin(ang-0.45));
+  ctx.lineTo(x2 - hl*Math.cos(ang+0.45), y2 - hl*Math.sin(ang+0.45));
+  ctx.closePath(); ctx.fill();
+}
+
+function arrowOL(ctx,x1,y1,x2,y2,color,w){
+  arrow(ctx,x1,y1,x2,y2,'rgba(255,255,255,0.92)',w+3);
+  arrow(ctx,x1,y1,x2,y2,color,w);
+}
+
+function dot(ctx,x,y,color){
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x,y,2.5,0,TAU); ctx.fill();
+}
+
+function phaseCur(phi,offset){ return Math.abs(state.iq)*Math.cos(phi - offset); }
+
+/* 十六进制颜色 → rgba（半透明用） */
+function hexA(hex,alpha){
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/* =====================================================================
+ * ① 电机主剖面（左上）：6 线圈 + 各自分磁场矢量 + 圆心合成 Fs + 转子
+ * ===================================================================== */
+function drawMotorCell(){
+  const cv = CVS[0], ctx = cv.getContext('2d');
+  const w = cv.width/DPR, h = cv.height/DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const cx = w*0.32, cy = h*0.52;
+  const R  = Math.min(h*0.30, w*0.19);          /* 电机外半径 */
+  const th  = state.theta*deg;
+  const phi = th + Math.PI/2;                   /* id=0：电流矢量锁定 q 轴 */
+  const ph  = [phaseCur(phi,0), phaseCur(phi,TAU/3), phaseCur(phi,2*TAU/3)];
+
+  const Ri  = 0.64*R, Ryo = 0.86*R, Rm  = 0.56*R, Rri = 0.46*R;
+
+  /* --- 定子轭 --- */
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU);
+  ctx.fillStyle = '#c7cfda'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#7e8998'; ctx.stroke();
+
+  /* --- 齿部环形 --- */
+  ctx.beginPath();
+  ctx.arc(cx,cy,Ryo,0,TAU);
+  ctx.arc(cx,cy,Ri,0,TAU,true);
+  ctx.fillStyle = '#dde4ed'; ctx.fill();
+
+  /* --- 6 个定子槽（0°,60°…300°，槽间为齿） --- */
+  for (let k=0;k<6;k++){
+    const c  = (k*60)*deg, hw = 17*deg;
+    const p1 = polar(cx,cy,Ryo,c-hw), p2 = polar(cx,cy,Ryo,c+hw);
+    const p3 = polar(cx,cy,Ri,c+hw),  p4 = polar(cx,cy,Ri,c-hw);
+    ctx.beginPath();
+    ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]);
+    ctx.lineTo(p3[0],p3[1]); ctx.lineTo(p4[0],p4[1]);
+    ctx.closePath();
+    ctx.fillStyle = '#5d6777'; ctx.fill();
+  }
+
+  /* --- 气隙环 --- */
+  ctx.beginPath();
+  ctx.arc(cx,cy,Ri,0,TAU);
+  ctx.arc(cx,cy,Rm,0,TAU,true);
+  ctx.fillStyle = '#f1f4f8'; ctx.fill();
+
+  /* --- 6 个线圈边（编号 A+/A−…，颜色随自身电流正负：正暖负冷） --- */
+  for (const [a,lab,pi,s] of SIDES){
+    drawSide(ctx,cx,cy,R,a, s*ph[pi], lab);
+  }
+
+  /* --- 转子（仅 N/S 色块与铁芯，无任何转子磁力线） --- */
+  drawRotor(ctx,cx,cy,R,th);
+
+  /* --- 6 个线圈的独立分磁场矢量（起点固定在线圈位置，方向固定） --- */
+  drawCoilVectors(ctx,cx,cy,R,ph);
+
+  /* --- 加粗的合成磁场 Fs（起点固定圆心，唯一磁场箭头，无磁力线） --- */
+  drawStatorField(ctx,cx,cy,R,phi);
+
+  /* --- 合成磁场产生的电磁力 F（起点在 Fs 箭头尖处，⊥Fs） --- */
+  drawFieldForce(ctx,cx,cy,R,phi);
+
+  /* --- 箭头文字标注（固定下方，引线指向箭头） --- */
+  drawArrowLabels(ctx,cx,cy,R,phi);
+
+  /* --- 标题 --- */
+  label(ctx,'① SPM 电机剖面（p=1，θe=θm）',w*0.5,h*0.035,{size:13,bold:true,color:'#1e3a5f'});
+}
+
+/* 单个线圈边：槽内导体块，暖/冷色随电流正负 */
+function drawSide(ctx,cx,cy,R,ang,cur,lab){
+  const a     = Math.min(1, Math.abs(cur)/IMAX);
+  const alpha = 0.22 + 0.75*a;
+  const col   = cur>=0 ? `rgba(228,90,58,${alpha})` : `rgba(47,111,214,${alpha})`;
+  const hw = 15*deg, rO = 0.845*R, rI = 0.655*R;
+  const p1 = polar(cx,cy,rO,ang-hw), p2 = polar(cx,cy,rO,ang+hw);
+  const p3 = polar(cx,cy,rI,ang+hw), p4 = polar(cx,cy,rI,ang-hw);
+  ctx.beginPath();
+  ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]);
+  ctx.lineTo(p3[0],p3[1]); ctx.lineTo(p4[0],p4[1]);
+  ctx.closePath();
+  ctx.fillStyle = col; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(15,25,45,0.35)'; ctx.stroke();
+  const [sx,sy] = polar(cx,cy,(rI+rO)/2, ang);
+  label(ctx,lab,sx,sy,{size:9,bold:true,color:'#fff',halo:false});
+}
+
+/* 转子：表贴永磁体 N(红)/S(蓝) + 铁芯 + 转轴 + d 轴（禁止转子磁力线） */
+function drawRotor(ctx,cx,cy,R,th){
+  const Rm  = 0.56*R, Rri = 0.46*R;
+  magnet(ctx,cx,cy,Rri,Rm, th-Math.PI/2, th+Math.PI/2,     '#e14b3c');
+  magnet(ctx,cx,cy,Rri,Rm, th+Math.PI/2, th+3*Math.PI/2,   '#2e6ed8');
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.2;
+  for (const a of [th-Math.PI/2, th+Math.PI/2]){
+    const [x1,y1] = polar(cx,cy,Rri,a), [x2,y2] = polar(cx,cy,Rm,a);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(cx,cy,Rri,0,TAU);
+  ctx.fillStyle = '#9aa5b3'; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = '#7e8998'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,0.15*R,0,TAU);
+  ctx.fillStyle = '#7d8897'; ctx.fill();
+  ctx.strokeStyle = '#5d6777'; ctx.lineWidth = 2.5;
+  const [r1x,r1y] = polar(cx,cy,0.18*R,th+0.7), [r2x,r2y] = polar(cx,cy,0.36*R,th+0.7);
+  ctx.beginPath(); ctx.moveTo(r1x,r1y); ctx.lineTo(r2x,r2y); ctx.stroke();
+  const [nx,ny] = polar(cx,cy,0.52*R,th), [sx,sy] = polar(cx,cy,0.52*R,th+Math.PI);
+  label(ctx,'N',nx,ny,{size:12,bold:true,color:'#fff',halo:false});
+  label(ctx,'S',sx,sy,{size:12,bold:true,color:'#fff',halo:false});
+  const [dx1,dy1] = polar(cx,cy,Rm,th);
+  ctx.save();
+  ctx.setLineDash([5,4]); ctx.strokeStyle = '#b3261e'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(dx1,dy1); ctx.stroke();
+  ctx.restore();
+  const [ddx,ddy] = polar(cx,cy,0.615*R,th);
+  label(ctx,'d轴',ddx,ddy,{size:10.5,bold:true,color:'#b3261e'});
+}
+
+function magnet(ctx,cx,cy,rIn,rOut,aS,aE,color){
+  ctx.beginPath();
+  ctx.arc(cx,cy,rOut,-aS,-aE,true);
+  const [ex,ey] = polar(cx,cy,rIn,aE);
+  ctx.lineTo(ex,ey);
+  ctx.arc(cx,cy,rIn,-aE,-aS,false);
+  ctx.closePath();
+  ctx.fillStyle = color; ctx.fill();
+  ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(20,30,50,0.4)'; ctx.stroke();
+}
+
+/* 6 个线圈独立分磁场矢量：起点在线圈上，方向固定为径向——
+ * 正向电流 → 指向圆心；反向电流 → 背离圆心；长度随 |i| 缩放；
+ * 细 + 半透明 + 区分色 */
+function drawCoilVectors(ctx,cx,cy,R,ph){
+  const k = 0.38*R/IMAX;                       /* 单位电流对应的矢量长度（放大） */
+  for (const [a,lab,pi,s,col] of SIDES){
+    const cur = s*ph[pi];
+    const L   = Math.abs(cur)*k;
+    const [x0,y0] = polar(cx,cy,0.80*R,a);
+    if (L > 2){
+      /* 矢量 = −cur·u(a)：cur>0 指向圆心(−u(a))，cur<0 背离圆心(+u(a)) */
+      const x1 = x0 + cur*k*(-Math.cos(a));
+      const y1 = y0 + cur*k*(+Math.sin(a));
+      arrow(ctx,x0,y0,x1,y1,hexA(col,0.75),1.5,7);
+    }
+    /* 线圈磁场标注 */
+    const [lx,ly] = polar(cx,cy,1.22*R,a);
+    label(ctx,lab+'磁场',lx,ly,{size:8.5,bold:true,color:col});
+  }
+}
+
+/* =====================================================================
+ * （磁场线已按要求删除：电机剖面中间只用一根带方向箭头表示合成磁场）
+ * ===================================================================== */
+
+/* 加粗醒目：定子合成电枢磁场 Fs（起点固定圆心，唯一磁场箭头） */
+function drawStatorField(ctx,cx,cy,R,phi){
+  const Is = Math.abs(state.iq);
+  if (Is < 0.05) return;
+  const Bs  = 0.65*Math.min(1, Is/IMAX);
+  const len = (0.35 + 0.75*Bs)*R;
+  const [ex,ey] = polar(cx,cy,len,phi);
+  arrowOL(ctx,cx,cy,ex,ey,'#ff8a00',4.5);
+}
+
+/* 合成磁场产生的电磁力 F：起点固定在 Fs 箭头尖处，方向必垂直于 Fs
+ * （iq>0 取 Fs−90°，iq<0 反向翻转），长短表示大小（∝|iq|） */
+function drawFieldForce(ctx,cx,cy,R,phi){
+  const Is = Math.abs(state.iq);
+  const kI = Math.min(1, Is/IMAX);
+  if (kI < 0.01) return;
+  const sgn  = Math.sign(state.iq) || 0;
+  const fAng = phi - (sgn>=0 ? Math.PI/2 : -Math.PI/2);   /* ⊥ Fs */
+  const Bs   = 0.65*kI;
+  const lenFs = (0.35 + 0.75*Bs)*R;             /* 与 drawStatorField 的 Fs 长度一致 */
+  const L   = 0.45*R*kI;                        /* 力箭头长度 ∝ |iq| */
+  const [sx,sy] = polar(cx,cy,lenFs,phi);       /* 起点 = Fs 箭头尖 */
+  const ex = sx + L*Math.cos(fAng), ey = sy - L*Math.sin(fAng);
+  arrowOL(ctx,sx,sy,ex,ey,'#7c3aed',4);
+}
+
+/* 电机剖面的箭头文字标注：固定在电机下方并用引线指向箭头，
+ * 避免文字压住线圈标注、d 轴标注或彼此重叠 */
+function drawArrowLabels(ctx,cx,cy,R,phi){
+  const Is = Math.abs(state.iq);
+  const kI = Math.min(1, Is/IMAX);
+  if (kI < 0.01) return;
+  const sgn  = Math.sign(state.iq) || 0;
+  const fAng = phi - (sgn>=0 ? Math.PI/2 : -Math.PI/2);
+  const lenFs = (0.35 + 0.75*0.65*kI)*R;
+  const L   = 0.45*R*kI;
+  const [fx,fy] = polar(cx,cy,lenFs,phi);                       /* Fs 箭头尖 */
+  const [tx2,ty2] = [fx + L*Math.cos(fAng), fy - L*Math.sin(fAng)];  /* 力箭头尖 */
+  const ly  = cy + 1.45*R;
+  const lxL = cx - 0.95*R, lxR = cx + 0.85*R;
+  /* 引线 */
+  ctx.strokeStyle = 'rgba(120,134,150,0.45)'; ctx.lineWidth = 1;
+  const [mfx,mfy] = polar(cx,cy,lenFs*0.55,phi);
+  ctx.beginPath(); ctx.moveTo(mfx,mfy); ctx.lineTo(lxL,ly-12); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tx2,ty2); ctx.lineTo(lxR,ly-12); ctx.stroke();
+  /* 文字 */
+  label(ctx,'定子合成电枢磁场 Fs',lxL,ly,{size:11,bold:true,color:'#b45309'});
+  label(ctx,'电磁力 F（⊥Fs）',lxR,ly,{size:11,bold:true,color:'#6d28d9'});
+}
+
+/* =====================================================================
+ * ② 矢量叠加小图（右上）：6 分矢量从各自线圈点位出发，首尾相加，
+ *    从圆心输出合成矢量 Fs
+ * ===================================================================== */
+function drawSynthCell(){
+  const cv = CVS[1], ctx = cv.getContext('2d');
+  const w = cv.width/DPR, h = cv.height/DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const cx = w*0.50, cy = h*0.46;
+  const SR = Math.min(h*0.32, w*0.17);
+  const phi = state.theta*deg + Math.PI/2;
+  const Is  = Math.abs(state.iq);
+  const kI  = Math.min(1, Is/IMAX);
+  const ph  = [phaseCur(phi,0), phaseCur(phi,TAU/3), phaseCur(phi,2*TAU/3)];
+
+  /* 背景圆 */
+  ctx.strokeStyle = '#d8dee8'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx,cy,SR,0,TAU); ctx.stroke();
+
+  /* 6 个线圈各自的磁场矢量线：径向箭头——
+   * 正向电流 → 指向圆心；反向电流 → 背离圆心；
+   * 箭头方向 + 长短表示大小（长度∝|i|，已放大），半透明区分色 */
+  const sc = 0.36*SR/IMAX;                     /* 单位电流对应的箭头长度 */
+  for (const [a,lab,pi,s,col] of SIDES){
+    const cur = s*ph[pi];
+    const [ix,iy] = polar(cx,cy,0.62*SR,a);
+    if (Math.abs(cur) > 0.05){
+      arrow(ctx, ix, iy,
+            ix + cur*sc*(-Math.cos(a)), iy + cur*sc*(+Math.sin(a)),
+            hexA(col,0.85), 2.6, 10);
+    }
+    /* 线圈点位 */
+    ctx.beginPath(); ctx.arc(ix,iy,0.035*SR,0,TAU);
+    ctx.fillStyle = '#5d6777'; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = '#3f4856'; ctx.stroke();
+    /* 点位标签（置于圆外，避免遮挡箭头） */
+    const [lx,ly] = polar(cx,cy,1.06*SR,a);
+    label(ctx,lab,lx,ly,{size:9,bold:true,color:col,halo:false});
+  }
+
+  /* 中心：只展示叠加后的合成磁场矢量线（加粗箭头，方向=合成磁场方向，
+   * 长短表示大小；随电角度与电流幅值实时变化） */
+  const Ls = 0.60*SR*kI;
+  if (Ls > 1){
+    const [ex,ey] = polar(cx,cy,Ls,phi);
+    arrowOL(ctx,cx,cy,ex,ey,'#ff8a00',4.5);
+    /* 标注放在箭杆侧旁，避免压住线圈标签与箭头 */
+    const [mlx,mly] = polar(cx,cy,Ls*0.55,phi);
+    const perp = phi+Math.PI/2;
+    label(ctx,'合成磁场',mlx+13*Math.cos(perp), mly-13*Math.sin(perp),
+          {size:10,bold:true,color:'#b45309'});
+  }
+  dot(ctx,cx,cy,'#64748b');
+
+  label(ctx,'② 磁场叠加：6 线圈分磁场 → 合成磁场',w*0.5,h*0.045,{size:13,bold:true,color:'#1e3a5f'});
+  label(ctx,'6 线圈磁场矢量叠加 → 中心为合成磁场（箭头方向·长短=大小）',w*0.5,h*0.86,{size:10,color:'#94a3b8'});
+}
+
+/* =====================================================================
+ * ③ α-β 静止坐标系（左下）
+ * ===================================================================== */
+function drawABCell(){
+  const cv = CVS[2], ctx = cv.getContext('2d');
+  const w = cv.width/DPR, h = cv.height/DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const ax = w*0.50, ay = h*0.48;
+  const AR = Math.min(h*0.32, w*0.17);
+  const phi = state.theta*deg + Math.PI/2;
+  const Is  = Math.abs(state.iq);
+  const ia = phaseCur(phi,0), ib = phaseCur(phi,TAU/3), ic = phaseCur(phi,2*TAU/3);
+
+  ctx.strokeStyle = '#d8dee8'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(ax,ay,AR,0,TAU); ctx.stroke();
+  ctx.setLineDash([4,4]); ctx.strokeStyle = '#c3ccd8'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ax-AR,ay); ctx.lineTo(ax+AR,ay);
+  ctx.moveTo(ax,ay-AR); ctx.lineTo(ax,ay+AR);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  arrow(ctx,ax,ay,ax+AR,ay,'#455a64',2,12);
+  arrow(ctx,ax,ay,ax,ay-AR,'#455a64',2,12);
+  label(ctx,'α',ax+AR+14,ay,{size:13,bold:true});
+  label(ctx,'β',ax,ay-AR-14,{size:13,bold:true});
+  dot(ctx,ax,ay,'#64748b');
+
+  const len = AR*0.85*Math.min(1, Is/IMAX);
+  const [vx,vy] = polar(ax,ay,len,phi);
+  if (len > 2) arrowOL(ctx,ax,ay,vx,vy,'#0891b2',3.5);
+  /* "Is" 放在箭杆侧旁，避免与 iα / iβ 标注、α 轴标签重叠 */
+  const [ix2,iy2] = polar(ax,ay,Math.max(22,len*0.62),phi);
+  const perpA = phi + Math.PI/2;
+  label(ctx,'Is',ix2+12*Math.cos(perpA), iy2-12*Math.sin(perpA),
+        {size:11.5,bold:true,color:'#0e7490'});
+
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.2; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(vx,vy); ctx.lineTo(vx,ay); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(vx,vy); ctx.lineTo(ax,vy); ctx.stroke();
+  ctx.setLineDash([]);
+  dot(ctx,vx,ay,'#64748b'); dot(ctx,ax,vy,'#64748b');
+  label(ctx,'iα = '+ia.toFixed(1),vx,ay+24,{size:11});
+  label(ctx,'iβ = '+((ib-ic)/Math.sqrt(3)).toFixed(1),ax-20,vy,{size:11,align:'right'});
+
+  label(ctx,'③ α-β 静止坐标系',w*0.5,h*0.045,{size:13,bold:true,color:'#1e3a5f'});
+  label(ctx,'iα / iβ：Is 在 α-β 轴上的投影',w*0.5,h*0.86,{size:10,color:'#94a3b8'});
+
+  /* 左下角图例 */
+  drawLegend(ctx,w,h);
+}
+
+/* =====================================================================
+ * ④ d-q 旋转坐标系（右下）
+ * ===================================================================== */
+function drawDQCell(){
+  const cv = CVS[3], ctx = cv.getContext('2d');
+  const w = cv.width/DPR, h = cv.height/DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const dx = w*0.50, dy = h*0.48;
+  const DR = Math.min(h*0.32, w*0.17);
+  const th = state.theta*deg;
+  const Is = Math.abs(state.iq);
+
+  ctx.strokeStyle = '#d8dee8'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(dx,dy,DR,0,TAU); ctx.stroke();
+  ctx.setLineDash([3,5]); ctx.strokeStyle = '#e3e8ef'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(dx-DR,dy); ctx.lineTo(dx+DR,dy);
+  ctx.moveTo(dx,dy-DR); ctx.lineTo(dx,dy+DR);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const [dx1,dy1] = polar(dx,dy,DR*0.95,th);
+  const [qx1,qy1] = polar(dx,dy,DR*0.95,th+Math.PI/2);
+  arrow(ctx,dx,dy,dx1,dy1,'#dc2626',2.5,12);
+  arrow(ctx,dx,dy,qx1,qy1,'#059669',2.5,12);
+  const [dlx,dly] = polar(dx,dy,DR+13,th);
+  label(ctx,'d',dlx,dly,{size:13,bold:true,color:'#dc2626'});
+  const [qlx,qly] = polar(dx,dy,DR+13,th+Math.PI/2);
+  label(ctx,'q',qlx,qly,{size:13,bold:true,color:'#059669'});
+  ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(dx,dy,0.30*DR,0,-th,true); ctx.stroke();
+  const [tlx,tly] = polar(dx,dy,0.44*DR,th/2);
+  label(ctx,'θe',tlx,tly,{size:11,color:'#64748b'});
+  dot(ctx,dx,dy,'#dc2626');
+  const [zdx,zdy] = polar(dx,dy,28,th+Math.PI);
+  label(ctx,'id = 0',zdx,zdy,{size:11,bold:true,color:'#dc2626'});
+  const len = DR*0.85*Math.min(1, Is/IMAX);
+  if (len > 2){
+    const [ix1,iy1] = polar(dx,dy,len,th+Math.PI/2);
+    /* iq 矢量用蓝色，与 q 轴（绿色）区分开 */
+    arrowOL(ctx,dx,dy,ix1,iy1,'#2563eb',3.5);
+    /* iq 标注放在箭杆侧旁（沿 d 方向偏一点），不压 q 轴标签 */
+    const [ilx,ily] = polar(dx,dy,len*0.62,th+Math.PI/2);
+    label(ctx,'iq = '+state.iq.toFixed(1)+' A',
+          ilx+12*Math.cos(th), ily-12*Math.sin(th),
+          {size:11,bold:true,color:'#1d4ed8'});
+  }
+
+  label(ctx,'④ d-q 旋转坐标系（id=0 控制）',w*0.5,h*0.045,{size:13,bold:true,color:'#1e3a5f'});
+  label(ctx,'id=0：电流全部转化为 iq（转矩电流）',w*0.5,h*0.86,{size:10,color:'#94a3b8'});
+}
+
+/* 左下角图例（画在 αβ 子画布底部） */
+function drawLegend(ctx,w,h){
+  const y = h-11, fs = 10;
+  ctx.font = fs + 'px "PingFang SC","Microsoft YaHei",sans-serif';
+  const chip = (x,color)=>{
+    ctx.fillStyle = color; ctx.fillRect(x,y-8,10,10);
+    ctx.strokeStyle = 'rgba(30,41,59,0.35)'; ctx.lineWidth = 0.8;
+    ctx.strokeRect(x,y-8,10,10);
+  };
+  const put = (x,str)=>{
+    label(ctx,str,x,y,{size:fs,align:'left',color:'#556'});
+    return x + ctx.measureText(str).width;
+  };
+  let x = 10;
+  x = put(x,'线圈：') + 2;
+  chip(x,'#e45a3a'); x += 15; x = put(x,'正(暖)') + 4;
+  chip(x,'#2f6fd6'); x += 15; x = put(x,'负(冷)') + 12;
+  x = put(x,'磁极：') + 2;
+  chip(x,'#e14b3c'); x += 15; x = put(x,'N') + 4;
+  chip(x,'#2e6ed8'); x += 15; x = put(x,'S') + 12;
+  x = put(x,'合成：') + 2;
+  chip(x,'#ff8a00'); x += 15; x = put(x,'Fs') + 12;
+  x = put(x,'电磁力：') + 2;
+  chip(x,'#7c3aed'); x += 15; x = put(x,'F⊥Fs');
+}
+
+/* =====================================================================
+ * 主绘制入口（每帧调用，四个子画布）
+ * ===================================================================== */
+function draw(){
+  drawMotorCell();
+  drawSynthCell();
+  drawABCell();
+  drawDQCell();
+}
+
+/* =====================================================================
+ * 控件交互与动画循环
+ * ===================================================================== */
+function syncButton(){
+  btnRun.textContent = state.running ? '⏸ 暂停' : '▶ 启动';
+  sRun.textContent  = state.running ? '运行中' : '已暂停（手动）';
+  sRun.className    = state.running ? '' : 'paused';
+}
+btnRun.addEventListener('click', ()=>{
+  state.running = !state.running;
+  syncButton();
+});
+
+let dragTheta = false;
+slTheta.addEventListener('pointerdown', ()=>{ dragTheta = true; });
+window.addEventListener('pointerup',   ()=>{ dragTheta = false; });
+slTheta.addEventListener('input', ()=>{
+  state.theta   = +slTheta.value;
+  state.running = false;
+  vTheta.textContent = state.theta.toFixed(1) + '°';
+  syncButton();
+});
+slSpeed.addEventListener('input', ()=>{
+  state.speed = +slSpeed.value;
+  vSpeed.textContent = String(state.speed);
+});
+slIq.addEventListener('input', ()=>{
+  state.iq = +slIq.value;
+  vIq.textContent = state.iq.toFixed(1);
+});
+
+function updateStatus(){
+  const th  = state.theta*deg;
+  const phi = th + Math.PI/2;
+  const Is  = Math.abs(state.iq);
+  const ia = phaseCur(phi,0), ib = phaseCur(phi,TAU/3), ic = phaseCur(phi,2*TAU/3);
+  sTheta.textContent  = state.theta.toFixed(1) + '°';
+  sIa.textContent     = ia.toFixed(2) + ' A';
+  sIb.textContent     = ib.toFixed(2) + ' A';
+  sIc.textContent     = ic.toFixed(2) + ' A';
+  sIalpha.textContent = (Is*Math.cos(phi)).toFixed(2) + ' A';
+  sIbeta.textContent  = (Is*Math.sin(phi)).toFixed(2) + ' A';
+  sId.textContent     = '0.00 A';
+  sIq.textContent     = state.iq.toFixed(2) + ' A';
+}
+
+let last = performance.now();
+function loop(now){
+  const dt = Math.min(0.05, (now - last)/1000);
+  last = now;
+  if (state.running){
+    state.theta = (state.theta + state.speed*dt) % 360;
+    if (state.theta < 0) state.theta += 360;
+    if (!dragTheta){
+      slTheta.value = state.theta.toFixed(1);
+      vTheta.textContent = state.theta.toFixed(1) + '°';
+    }
+  }
+  draw();
+  updateStatus();
+  requestAnimationFrame(loop);
+}
+
+syncButton();
+vSpeed.textContent = String(state.speed);
+vIq.textContent    = state.iq.toFixed(1);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

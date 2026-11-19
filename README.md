@@ -99,37 +99,6 @@ id = 0 控制时 `Fs` 与 q 轴同向、`|Fs| ∝ iq`。
 
 ---
 
-## 🌐 发布到 GitHub Pages
-
-### 方式 A：从分支直接部署（最简单）
-
-1. 在 GitHub 新建仓库（例如 `spm-foc-demo`，**不要**勾选初始化 README）；
-2. 在本目录执行：
-
-   ```bash
-   git init
-   git add .
-   git commit -m "feat: SPM FOC 矢量控制交互演示"
-   git branch -M main
-   git remote add origin git@github.com:<你的用户名>/spm-foc-demo.git
-   git push -u origin main
-   ```
-
-3. 打开仓库 **Settings → Pages**，Source 选择 **Deploy from a branch**；
-4. Branch 选 `main`、目录选 `/ (root)`，点击 **Save**；
-5. 等待 1 分钟左右，访问：
-
-   ```
-   https://<你的用户名>.github.io/spm-foc-demo/
-   ```
-
-### 方式 B：GitHub Actions（仓库已内置 workflow）
-
-仓库包含 `.github/workflows/pages.yml`，推送到 `main` 后会自动构建并发布。
-在 **Settings → Pages → Source** 选择 **GitHub Actions** 即可。
-
----
-
 ## 📁 目录结构
 
 ```
